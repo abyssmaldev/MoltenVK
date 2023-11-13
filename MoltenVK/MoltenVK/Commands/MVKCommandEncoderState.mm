@@ -1212,7 +1212,7 @@ void MVKComputeResourcesCommandEncoderState::markOverriddenBufferIndexesDirty() 
 // Don't copy occlusion info until after rasterization, as Metal renderpasses can be ended prematurely during tessellation.
 void MVKOcclusionQueryCommandEncoderState::endMetalRenderPass() {
 	const MVKMTLBufferAllocation* vizBuff = _cmdEncoder->_pEncodingContext->visibilityResultBuffer;
-    if ( !_hasRasterized || !vizBuff || _mtlRenderPassQueries.empty() ) { return; }  // Nothing to do.
+    if ( !vizBuff || _mtlRenderPassQueries.empty() ) { return; }  // Nothing to do.
 
 	id<MTLComputePipelineState> mtlAccumState = _cmdEncoder->getCommandEncodingPool()->getAccumulateOcclusionQueryResultsMTLComputePipelineState();
     id<MTLComputeCommandEncoder> mtlAccumEncoder = _cmdEncoder->getMTLComputeEncoder(kMVKCommandUseAccumOcclusionQuery, true);
