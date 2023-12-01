@@ -24,8 +24,10 @@ Released TBD
 - Fix regression in marking rendering state dirty after `vkCmdClearAttachments()`.
 - Reduce disk space consumed after running `fetchDependencies` script by removing intermediate file caches.
 - Fix rare deadlock during launch via `dlopen()`.
+- Fix initial value of `VkPhysicalDeviceLimits::timestampPeriod` on non-Apple Silicon GPUs.
 - Update to latest SPIRV-Cross:
   - MSL: Fix regression error in argument buffer runtime arrays.
+  - MSL: Work around broken cube texture gradients on Apple Silicon.
 
 
 
