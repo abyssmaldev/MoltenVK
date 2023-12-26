@@ -737,23 +737,23 @@ MTLTextureUsage MVKPixelFormats::getMTLTextureUsage(VkImageUsageFlags vkImageUsa
 		mvkEnableFlags(mtlUsage, samples == VK_SAMPLE_COUNT_1_BIT ? MTLTextureUsageShaderWrite : MTLTextureUsageShaderRead);
 	}
 
-	// Create view on, but only on color formats, or combined depth-stencil formats if supported by the GPU...
-	if ((mvkIsAnyFlagEnabled(vkImageUsageFlags, (VK_IMAGE_USAGE_TRANSFER_SRC_BIT)) || 		// May use temp view if transfer involves format change
-		 (needsReinterpretation &&
-		  mvkIsAnyFlagEnabled(vkImageUsageFlags, (VK_IMAGE_USAGE_SAMPLED_BIT |
-												  VK_IMAGE_USAGE_STORAGE_BIT |
-												  VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
-												  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)))) &&
-		isColorFormat) {
+	bool pfv = false;
 
-		mvkEnableFlags(mtlUsage, MTLTextureUsagePixelFormatView);
-	}
-	if (mvkIsAnyFlagEnabled(vkImageUsageFlags, (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | 		// May use temp view if transfer involves format change
-		 										VK_IMAGE_USAGE_SAMPLED_BIT |
-												VK_IMAGE_USAGE_STORAGE_BIT |
-												VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)) &&
-		isCombinedDepthStencilFmt && supportsStencilViews) {
+	// Swizzle emulation may need to reinterpret
+	needsReinterpretation |= !_physicalDevice->getMetalFeatures()->nativeTextureSwizzle;
 
+	pfv |= isColorFormat && needsReinterpretation &&
+	       mvkIsAnyFlagEnabled(vkImageUsageFlags, (VK_IMAGE_USAGE_SAMPLED_BIT |
+	                                               VK_IMAGE_USAGE_STORAGE_BIT |
+	                                               VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT |
+	                                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT));
+	pfv |= isCombinedDepthStencilFmt && supportsStencilViews &&
+	       mvkIsAnyFlagEnabled(vkImageUsageFlags, (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | // May use temp view if transfer involves format change
+	                                               VK_IMAGE_USAGE_SAMPLED_BIT |
+	                                               VK_IMAGE_USAGE_STORAGE_BIT |
+	                                               VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT));
+
+	if (pfv) {
 		mvkEnableFlags(mtlUsage, MTLTextureUsagePixelFormatView);
 	}
 
@@ -1492,7 +1492,7 @@ void MVKPixelFormats::modifyMTLFormatCapabilities() {
 		modifyMTLFormatCapabilities(_physicalDevice->getMTLDevice());
 	} else {
 		@autoreleasepool {
-			auto* mtlDevs = mvkGetAvailableMTLDevicesArray();
+			auto* mtlDevs = mvkGetAvailableMTLDevicesArray(nullptr);
 			if (mtlDevs.count) { modifyMTLFormatCapabilities(mtlDevs[0]); }
 		}
 	}
@@ -2022,7 +2022,7 @@ void MVKPixelFormats::buildVkFormatMaps() {
 #if MVK_IOS || MVK_TVOS
 					bool supportsNativeTextureSwizzle = mtlDev && mvkOSVersionIsAtLeast(13.0);
 #endif
-					if (!supportsNativeTextureSwizzle && !mvkConfig().fullImageViewSwizzle) {
+					if (!supportsNativeTextureSwizzle && !getMVKConfig().fullImageViewSwizzle) {
 						vkDesc.mtlPixelFormat = vkDesc.mtlPixelFormatSubstitute = MTLPixelFormatInvalid;
 					}
 				}
