@@ -7,7 +7,7 @@
 MoltenVK
 ========
 
-Copyright (c) 2015-2023 [The Brenwill Workshop Ltd.](http://www.brenwill.com)
+Copyright (c) 2015-2024 [The Brenwill Workshop Ltd.](http://www.brenwill.com)
 
 [comment]: # "This document is written in Markdown (http://en.wikipedia.org/wiki/Markdown) format."
 [comment]: # "For best results, use a Markdown reader."
@@ -294,13 +294,12 @@ or
 
 ...etc.
 
-
 ### Hiding Vulkan API Symbols
 
-You can optionally build MoltenVK with the Vulkan API static call symbols (`vk*`) hidden,
-to avoid library linking conflicts when bound to a Vulkan Loader that also exports identical symbols.
+You can optionally build **MoltenVK** with the Vulkan API static call symbols (`vk*`) hidden, to avoid 
+library linking conflicts when statically bound to a _Vulkan_ loader that also exports identical symbols.
 
-To do so, when building MoltenVK, set the build setting `MVK_HIDE_VULKAN_SYMBOLS=1`.
+To do so, when building **MoltenVK**, set the build setting `MVK_HIDE_VULKAN_SYMBOLS=1`.
 This build setting can be set in the `MoltenVK.xcodeproj` *Xcode* project,
 or it can be included in any of the `make` build commands. For example:
 
@@ -310,6 +309,10 @@ or
 	make macos MVK_HIDE_VULKAN_SYMBOLS=1
 
 ...etc.
+
+With `MVK_HIDE_VULKAN_SYMBOLS=1`, the _Vulkan_ `vkGetInstanceProcAddr()` call remains
+statically bound, to provide the application with the ability to retrieve the remaining
+_Vulkan_ API calls as function pointers.
 
 
 <a name="demos"></a>

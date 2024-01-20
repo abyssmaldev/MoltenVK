@@ -1,7 +1,7 @@
 /*
  * vulkan.mm
  *
- * Copyright (c) 2015-2023 The Brenwill Workshop Ltd. (http://www.brenwill.com)
+ * Copyright (c) 2015-2024 The Brenwill Workshop Ltd. (http://www.brenwill.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -304,7 +304,7 @@ MVK_PUBLIC_VULKAN_SYMBOL void vkGetPhysicalDeviceMemoryProperties(
 	MVKTraceVulkanCallEnd();
 }
 
-MVK_PUBLIC_VULKAN_SYMBOL PFN_vkVoidFunction vkGetInstanceProcAddr(
+MVK_PUBLIC_SYMBOL PFN_vkVoidFunction vkGetInstanceProcAddr(
     VkInstance                                  instance,
     const char*                                 pName) {
 
@@ -2876,6 +2876,33 @@ MVK_PUBLIC_VULKAN_CORE_ALIAS(vkGetDeviceMemoryOpaqueCaptureAddress, KHR);
 
 
 #pragma mark -
+#pragma mark VK_KHR_calibrated_timestamps
+
+MVK_PUBLIC_VULKAN_SYMBOL VkResult vkGetPhysicalDeviceCalibrateableTimeDomainsKHR(
+	VkPhysicalDevice							physicalDevice,
+	uint32_t*									pTimeDomainCount,
+	VkTimeDomainEXT*							pTimeDomains) {
+	MVKTraceVulkanCallStart();
+	MVKPhysicalDevice* mvkPD = MVKPhysicalDevice::getMVKPhysicalDevice(physicalDevice);
+	mvkPD->getCalibrateableTimeDomains(pTimeDomainCount, pTimeDomains);
+	MVKTraceVulkanCallEnd();
+	return VK_SUCCESS;
+}
+
+MVK_PUBLIC_VULKAN_SYMBOL VkResult vkGetCalibratedTimestampsKHR(
+	VkDevice									device,
+	uint32_t									timestampCount,
+	const VkCalibratedTimestampInfoEXT*			pTimestampInfos,
+	uint64_t*									pTimestamps,
+	uint64_t*									pMaxDeviation) {
+	MVKTraceVulkanCallStart();
+	MVKDevice* mvkDev = MVKDevice::getMVKDevice(device);
+	mvkDev->getCalibratedTimestamps(timestampCount, pTimestampInfos, pTimestamps, pMaxDeviation);
+	MVKTraceVulkanCallEnd();
+	return VK_SUCCESS;
+}
+
+#pragma mark -
 #pragma mark VK_KHR_copy_commands2 extension
 
 MVK_PUBLIC_VULKAN_CORE_ALIAS(vkCmdBlitImage2, KHR);
@@ -3371,29 +3398,9 @@ MVK_PUBLIC_VULKAN_CORE_ALIAS(vkGetBufferDeviceAddress, EXT);
 #pragma mark -
 #pragma mark VK_EXT_calibrated_timestamps extension
 
-MVK_PUBLIC_VULKAN_SYMBOL VkResult vkGetPhysicalDeviceCalibrateableTimeDomainsEXT(
-	VkPhysicalDevice							physicalDevice,
-	uint32_t*									pTimeDomainCount,
-	VkTimeDomainEXT*							pTimeDomains) {
-	MVKTraceVulkanCallStart();
-	MVKPhysicalDevice* mvkPD = MVKPhysicalDevice::getMVKPhysicalDevice(physicalDevice);
-	mvkPD->getCalibrateableTimeDomains(pTimeDomainCount, pTimeDomains);
-	MVKTraceVulkanCallEnd();
-	return VK_SUCCESS;
-}
 
-MVK_PUBLIC_VULKAN_SYMBOL VkResult vkGetCalibratedTimestampsEXT(
-	VkDevice									device,
-	uint32_t									timestampCount,
-	const VkCalibratedTimestampInfoEXT*			pTimestampInfos,
-	uint64_t*									pTimestamps,
-	uint64_t*									pMaxDeviation) {
-	MVKTraceVulkanCallStart();
-	MVKDevice* mvkDev = MVKDevice::getMVKDevice(device);
-	mvkDev->getCalibratedTimestamps(timestampCount, pTimestampInfos, pTimestamps, pMaxDeviation);
-	MVKTraceVulkanCallEnd();
-	return VK_SUCCESS;
-}
+MVK_PUBLIC_VULKAN_ALIAS(vkGetCalibratedTimestampsEXT, vkGetCalibratedTimestampsKHR);
+MVK_PUBLIC_VULKAN_ALIAS(vkGetPhysicalDeviceCalibrateableTimeDomainsEXT, vkGetPhysicalDeviceCalibrateableTimeDomainsKHR);
 
 
 #pragma mark -

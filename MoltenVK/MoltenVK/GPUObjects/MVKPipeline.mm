@@ -1,7 +1,7 @@
 /*
  * MVKPipeline.mm
  *
- * Copyright (c) 2015-2023 The Brenwill Workshop Ltd. (http://www.brenwill.com)
+ * Copyright (c) 2015-2024 The Brenwill Workshop Ltd. (http://www.brenwill.com)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1491,7 +1491,7 @@ bool MVKGraphicsPipeline::addVertexInputToPipeline(T* inputDesc,
 					vbXltdDesc.stride = vbDesc.stride;
 					vbXltdDesc.stepFunction = vbDesc.stepFunction;
 					vbXltdDesc.stepRate = vbDesc.stepRate;
-					xldtVACnt++;
+					xldtVACnt += xltdBind.mappedAttributeCount;
 				}
 			}
 
@@ -1533,13 +1533,14 @@ uint32_t MVKGraphicsPipeline::getTranslatedVertexBinding(uint32_t binding, uint3
 	// See if a translated binding already exists (for example if more than one VA needs the same translation).
 	for (auto& xltdBind : _translatedVertexBindings) {
 		if (xltdBind.binding == binding && xltdBind.translationOffset == translationOffset) {
+			xltdBind.mappedAttributeCount++;
 			return xltdBind.translationBinding;
 		}
 	}
 
 	// Get next available binding point and add a translation binding description for it
 	uint16_t xltdBindPt = (uint16_t)(maxBinding + _translatedVertexBindings.size() + 1);
-	_translatedVertexBindings.push_back( {.binding = (uint16_t)binding, .translationBinding = xltdBindPt, .translationOffset = translationOffset} );
+	_translatedVertexBindings.push_back( {.binding = (uint16_t)binding, .translationBinding = xltdBindPt, .translationOffset = translationOffset, .mappedAttributeCount = 1u} );
 
 	return xltdBindPt;
 }
