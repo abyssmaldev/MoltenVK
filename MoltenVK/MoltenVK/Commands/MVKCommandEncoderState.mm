@@ -322,9 +322,13 @@ void MVKRenderingCommandEncoderState::setPolygonMode(VkPolygonMode polygonMode, 
 	getContent(_isPolygonModePoint, isDynamic) = (polygonMode == VK_POLYGON_MODE_POINT);
 }
 
-void MVKRenderingCommandEncoderState::setBlendConstants(float blendConstants[4], bool isDynamic) {
-	MVKColor32 mtlBlendConstants;
-	mvkCopy(mtlBlendConstants.float32, blendConstants, 4);
+void MVKRenderingCommandEncoderState::setLineWidth(float lineWidth, bool isDynamic) {
+	auto mtlLineWidth = lineWidth;
+	setMTLContent(LineWidth);
+}
+
+void MVKRenderingCommandEncoderState::setBlendConstants(MVKColor32 blendConstants, bool isDynamic) {
+	MVKColor32 mtlBlendConstants = blendConstants;
 	setMTLContent(BlendConstants);
 }
 
@@ -363,6 +367,16 @@ void MVKRenderingCommandEncoderState::setDepthBiasEnable(VkBool32 depthBiasEnabl
 void MVKRenderingCommandEncoderState::setDepthClipEnable(bool depthClip, bool isDynamic) {
 	auto mtlDepthClipEnable = depthClip ? MTLDepthClipModeClip : MTLDepthClipModeClamp;
 	setMTLContent(DepthClipEnable);
+}
+
+void MVKRenderingCommandEncoderState::setDepthBounds(float minDepthBounds, float maxDepthBounds, bool isDynamic) {
+	MVKDepthBounds mtlDepthBounds = { minDepthBounds, maxDepthBounds };
+	setMTLContent(DepthBounds);
+}
+
+void MVKRenderingCommandEncoderState::setDepthBoundsTestEnable(VkBool32 depthBoundsTestEnable, bool isDynamic) {
+	auto mtlDepthBoundsTestEnable = static_cast<bool>(depthBoundsTestEnable);
+	setMTLContent(DepthBoundsTestEnable);
 }
 
 void MVKRenderingCommandEncoderState::setStencilReferenceValues(const VkPipelineDepthStencilStateCreateInfo& vkDepthStencilInfo) {
@@ -537,6 +551,21 @@ bool MVKRenderingCommandEncoderState::needsMetalRenderPassRestart() {
 
 #pragma mark Encoding
 
+#if MVK_USE_METAL_PRIVATE_API
+// An extension of the MTLRenderCommandEncoder protocol to declare the setLineWidth: method.
+@protocol MVKMTLRenderCommandEncoderLineWidth <MTLRenderCommandEncoder>
+-(void) setLineWidth: (float) width;
+@end
+
+// An extension of the MTLRenderCommandEncoder protocol containing a declaration of the
+// -setDepthBoundsTestAMD:minDepth:maxDepth: method.
+@protocol MVKMTLRenderCommandEncoderDepthBoundsAMD <MTLRenderCommandEncoder>
+
+- (void)setDepthBoundsTestAMD:(BOOL)enable minDepth:(float)minDepth maxDepth:(float)maxDepth;
+
+@end
+#endif
+
 void MVKRenderingCommandEncoderState::encodeImpl(uint32_t stage) {
 	if (stage != kMVKGraphicsStageRasterization) { return; }
 
@@ -549,6 +578,16 @@ void MVKRenderingCommandEncoderState::encodeImpl(uint32_t stage) {
 		auto& bcFlt = getMTLContent(BlendConstants).float32;
 		[rendEnc setBlendColorRed: bcFlt[0] green: bcFlt[1] blue: bcFlt[2] alpha: bcFlt[3]];
 	}
+
+#if MVK_USE_METAL_PRIVATE_API
+	if (isDirty(LineWidth)) {
+		auto lineWidthRendEnc = (id<MVKMTLRenderCommandEncoderLineWidth>)rendEnc;
+		if ([lineWidthRendEnc respondsToSelector: @selector(setLineWidth:)]) {
+			[lineWidthRendEnc setLineWidth: getMTLContent(LineWidth)];
+		}
+	}
+#endif
+
 	if (isDirty(DepthBiasEnable) || isDirty(DepthBias)) {
 		if (getMTLContent(DepthBiasEnable)) {
 			auto& db = getMTLContent(DepthBias);
@@ -563,6 +602,21 @@ void MVKRenderingCommandEncoderState::encodeImpl(uint32_t stage) {
 		[rendEnc setDepthClipMode: getMTLContent(DepthClipEnable)];
 	}
 
+#if MVK_USE_METAL_PRIVATE_API
+    if (getMVKConfig().useMetalPrivateAPI && (isDirty(DepthBoundsTestEnable) || isDirty(DepthBounds)) &&
+		_cmdEncoder->_pDeviceFeatures->depthBounds) {
+		if (getMTLContent(DepthBoundsTestEnable)) {
+			auto& db = getMTLContent(DepthBounds);
+			[(id<MVKMTLRenderCommandEncoderDepthBoundsAMD>)_cmdEncoder->_mtlRenderEncoder setDepthBoundsTestAMD: YES
+					   minDepth: db.minDepthBound
+					   maxDepth: db.maxDepthBound];
+		} else {
+			[(id<MVKMTLRenderCommandEncoderDepthBoundsAMD>)_cmdEncoder->_mtlRenderEncoder setDepthBoundsTestAMD: NO
+					   minDepth: 0.0f
+					   maxDepth: 1.0f];
+		}
+	}
+#endif
 	if (isDirty(StencilReference)) {
 		auto& sr = getMTLContent(StencilReference);
 		[rendEnc setStencilFrontReferenceValue: sr.frontFaceValue backReferenceValue: sr.backFaceValue];

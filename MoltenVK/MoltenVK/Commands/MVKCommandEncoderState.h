@@ -239,6 +239,11 @@ struct MVKDepthBias {
 	float depthBiasClamp;
 };
 
+struct MVKDepthBounds {
+	float minDepthBound;
+	float maxDepthBound;
+};
+
 struct MVKStencilReference {
 	uint32_t frontFaceValue;
 	uint32_t backFaceValue;
@@ -263,13 +268,17 @@ public:
 
 	void setPolygonMode(VkPolygonMode polygonMode, bool isDynamic);
 
-	void setBlendConstants(float blendConstants[4], bool isDynamic);
+	void setLineWidth(float lineWidth, bool isDynamic);
+
+	void setBlendConstants(MVKColor32 blendConstants, bool isDynamic);
 
 	void setDepthBias(const VkPipelineRasterizationStateCreateInfo& vkRasterInfo);
 	void setDepthBias(float depthBiasConstantFactor, float depthBiasSlopeFactor, float depthBiasClamp);
 	void setDepthBiasEnable(VkBool32 depthBiasEnable);
 	void setDepthClipEnable(bool depthClip, bool isDynamic);
 
+	void setDepthBounds(float minDepthBounds, float maxDepthBounds, bool isDynamic);
+	void setDepthBoundsTestEnable(VkBool32 depthBoundsTestEnable, bool isDynamic);
 	void setStencilReferenceValues(const VkPipelineDepthStencilStateCreateInfo& vkDepthStencilInfo);
 	void setStencilReferenceValues(VkStencilFaceFlags faceMask, uint32_t stencilReference);
 
@@ -316,19 +325,22 @@ protected:
 	MVKMTLScissors _mtlScissors[StateScope::Count] = {};
 	MVKColor32 _mtlBlendConstants[StateScope::Count] = {};
 	MVKDepthBias _mtlDepthBias[StateScope::Count] = {};
+	MVKDepthBounds _mtlDepthBounds[StateScope::Count] = {};
 	MVKStencilReference _mtlStencilReference[StateScope::Count] = {};
 	MTLCullMode _mtlCullMode[StateScope::Count] = { MTLCullModeNone, MTLCullModeNone };
 	MTLWinding _mtlFrontFace[StateScope::Count] = { MTLWindingClockwise, MTLWindingClockwise };
 	MTLPrimitiveType _mtlPrimitiveTopology[StateScope::Count] = { MTLPrimitiveTypePoint, MTLPrimitiveTypePoint };
 	MTLDepthClipMode _mtlDepthClipEnable[StateScope::Count] = { MTLDepthClipModeClip, MTLDepthClipModeClip };
 	MTLTriangleFillMode _mtlPolygonMode[StateScope::Count] = { MTLTriangleFillModeFill, MTLTriangleFillModeFill };
-	uint32_t _mtlPatchControlPoints[StateScope::Count] = {};
+	float _mtlLineWidth[StateScope::Count] = { 1, 1 };
+	uint32_t _mtlPatchControlPoints[StateScope::Count] = { 0, 0 };
 	MVKRenderStateFlags _dirtyStates;
 	MVKRenderStateFlags _modifiedStates;
 	bool _mtlSampleLocationsEnable[StateScope::Count] = {};
 	bool _mtlDepthBiasEnable[StateScope::Count] = {};
 	bool _mtlPrimitiveRestartEnable[StateScope::Count] = {};
 	bool _mtlRasterizerDiscardEnable[StateScope::Count] = {};
+	bool _mtlDepthBoundsTestEnable[StateScope::Count] = {};
 	bool _cullBothFaces[StateScope::Count] = {};
 	bool _isPolygonModePoint[StateScope::Count] = {};
 };
