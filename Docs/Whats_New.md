@@ -13,11 +13,61 @@ Copyright (c) 2015-2024 [The Brenwill Workshop Ltd.](http://www.brenwill.com)
 
 
 
-MoltenVK 1.2.8
---------------
+MoltenVK 1.2.10
+---------------
 
 Released TBD
 
+- Fix shader conversion failure when using native texture atomics.
+- MSL shader conversion, only pass resource bindings that apply to current shader stage.
+- Update documentation for minimum runtime OS requirements to indicate _macOS 10.15_, _iOS 13_, or _tvOS 13_.
+- Update to latest SPIRV-Cross:
+  - MSL: Add option to force depth write in fragment shaders
+  - MSL: Improve handling of padded descriptors with argument buffers
+  - MSL: Support ConstOffsets on image gather.
+
+
+
+MoltenVK 1.2.9
+--------------
+
+Released 2024/05/07
+
+- Add support for extensions:
+	- `VK_EXT_host_image_copy`
+- To support legacy apps, restore `MoltenVK/dylib` directory via symlink to `MoltenVK/dynamic/dylib`.
+- Enhancements to `MVKPerformanceStatistics`. Add `MVKPerformanceTracker::previous`, 
+  `MVKQueuePerformance::waitSubmitCommandBuffers`, and `MVKQueuePerformance::waitPresentSwapchains`.
+- Add `MVK_CONFIG_SHADER_DUMP_DIR` configuration parameter to optionally dump shaders to files.
+- Return **MoltenVK** log level string in `pMessageIdName` field of debug utils callback data.
+- Fix crash when using `VK_EXT_metal_objects` under _ARC_.
+- Fix deadlock when creating a swapchain on a thread other than the main thread.
+- Fix potential memory leak in `vkQueueWaitIdle()`.
+- Fix argument buffer padding on shader conversion.
+- Avoid atomic image usage if native atomics are not supported on the platform.
+- Ensure buffer bindings are actually used to avoid potential overrun on Metal buffer indexes.
+- Update dependency libraries to match _Vulkan SDK 1.3.283_.
+- Update `MVK_PRIVATE_API_VERSION` to `41`.
+- Update to latest SPIRV-Cross:
+  - MSL: Add support for overlapping bindings.
+  - MSL: Use recursive template for `spvArrayCopy()`.
+  - MSL: Improve argument buffer descriptor aliasing implementation.
+  - MSL: Workaround compiler issue with image fence when used as reference.
+  - MSL: Fix SUMulExtended for 64-bit inputs.
+  - MSL: Handle Atomic{S,U}{Min,Max} with mismatched image sign.
+  - MSL: Handle missing FP16 trancendental overloads.
+  - MSL: Remove pointer wrapper stored in `spvDescriptorArray()` to avoid potential Metal compiler bug. 
+  - MSL: Fix argument buffer padding.
+
+
+
+MoltenVK 1.2.8
+--------------
+
+Released 2024/03/12
+
+- Add support for extensions:
+	- `VK_KHR_shader_integer_dot_product`
 - Improve support for _iOS App Store_ rules by using dynamic _XCFramework_, instead of naked `dylib`.
   - Static _XCFramework_ now available in `Package/Latest/MoltenVK/static/MoltenVK.xcframework`.
   - Dynamic _XCFramework_ now available in `Package/Latest/MoltenVK/dynamic/MoltenVK.xcframework`.
@@ -28,10 +78,35 @@ Released TBD
   - `VkPhysicalDeviceFeatures::depthBounds` enabled on AMD GPUs when `MVK_USE_METAL_PRIVATE_API` is enabled in a **MoltenVK** build.
   - `VkPhysicalDevicePortabilitySubsetFeaturesKHR::samplerMipLodBias` enabled when `MVK_USE_METAL_PRIVATE_API` is enabled in a **MoltenVK** build.
   - _Metal_ native pipeline sample masks supported when `MVK_USE_METAL_PRIVATE_API` is enabled in a **MoltenVK** build.
+- Enable use of native texture atomics where supported.
 - Fix potential crash when using multi-planar images.
+- Fix translation of fully remapped multi vertex attribute bindings.
+- Fix unresolvable layered compute resolve.
+- Fix visionOS build.
+- Handle depth/stencil swizzle sample correctly.
 - Ensure buffers available for buffer addresses in push constants.
 - Don't update `currentExtent` of headless surface when swapchain attached.
+- Don't return `VK_SUBOPTIMAL_KHR` for headless surfaces.
 - `runcts` script also output a file containing a list of the failed CTS tests.
+- Add documentation for using Metal GPU capture with **MoltenVK**.
+- Update minimum _macOS_ deployment target to 10.15.
+- Update minimum _iOS/tvOS_ deployment target to 13.0.
+- Update dependency libraries to match _Vulkan SDK 1.3.280_.
+- Update `MVK_PRIVATE_API_VERSION` to `40`.
+- Update to latest SPIRV-Cross:
+  - MSL: Plumb through member state to image/sampler types.
+  - MSL: Support variable sized descriptor array in argument buffer.
+  - MSL: Implement `spvDescriptorArray` path for SSBO/UBO.
+  - MSL: Add support for SPV_EXT_integer_dot_product.
+  - MSL: Fix misc sign issues with dot product impl and add more coverage.
+  - MSL: Handle volatile properly for emulated image atomics.
+  - MSL: OpCopyObject declare a temp var of base type, not pointer type.
+  - MSL: Pass texture array index separately to atomic texture operations.
+  - MSL: Test image atomic for image2DArray.
+  - MSL: Improve handling of BDA + atomics.
+  - MSL: Fix type hierarchy for extended vectors.
+  - MSL: Fix type hierarchy for extended vectors.
+  - MSL: `atomic_compare_exchange_weak()` support `CompilerMSL:msl_options.texture_1D_as_2D`.
 
 
 
@@ -72,6 +147,7 @@ Released 2024/01/08
 - The _Cube_ demo is now based on _Volk_, with dynamic library linking, and dynamic function pointer calls.
 - Update copyright notices to year 2024.
 - Update dependency libraries to match _Vulkan SDK 1.3.275_.
+- Update `MVK_CONFIGURATION_API_VERSION` and `MVK_PRIVATE_API_VERSION` to `39`.
 - Update to latest SPIRV-Cross:
   - MSL: Fix regression error in argument buffer runtime arrays.
   - MSL: Work around broken cube texture gradients on Apple Silicon.

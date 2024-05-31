@@ -675,4 +675,16 @@ features that are difficult to support otherwise.
 
 Unlike `MVK_USE_METAL_PRIVATE_API`, this setting may be overridden at run time.
 
-This option is not available unless MoltenVK were built with `MVK_USE_METAL_PRIVATE_API` set to `1`.
+This option is not available unless **MoltenVK** was built with `MVK_USE_METAL_PRIVATE_API` set to `1`.
+
+
+---------------------------------------
+#### MVK_CONFIG_SHADER_DUMP_DIR
+
+##### Type: String
+##### Default: `""`
+
+_(The default value is an empty string)._
+
+If not empty, **MoltenVK** will dump all SPIR-V shaders, compiled MSL shaders, and pipeline shader lists to the given directory.
+The directory will be non-recursively created if it doesn't already exist.

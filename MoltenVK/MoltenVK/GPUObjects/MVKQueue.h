@@ -155,6 +155,7 @@ protected:
 	NSString* _mtlCmdBuffLabelQueueWaitIdle = nil;
 	NSString* _mtlCmdBuffLabelAcquireNextImage = nil;
 	NSString* _mtlCmdBuffLabelInvalidateMappedMemoryRanges = nil;
+	NSString* _mtlCmdBuffLabelCopyImageToMemory = nil;
 	MVKGPUCaptureScope* _submissionCaptureScope = nil;
 	float _priority;
 	uint32_t _index;
@@ -183,7 +184,7 @@ public:
 } MVKSemaphoreSubmitInfo;
 
 /** This is an abstract class for an operation that can be submitted to an MVKQueue. */
-class MVKQueueSubmission : public MVKBaseObject, public MVKConfigurableMixin {
+class MVKQueueSubmission : public MVKBaseDeviceObject, public MVKConfigurableMixin {
 
 public:
 
@@ -216,6 +217,7 @@ protected:
 
 	MVKQueue* _queue;
 	MVKSmallVector<MVKSemaphoreSubmitInfo> _waitSemaphores;
+	uint64_t _creationTime;
 };
 
 

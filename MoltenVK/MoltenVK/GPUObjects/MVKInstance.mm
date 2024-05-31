@@ -227,7 +227,7 @@ void MVKInstance::debugReportMessage(MVKVulkanAPIObject* mvkAPIObj, MVKConfigLog
 			.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CALLBACK_DATA_EXT,
 			.pNext = nullptr,
 			.flags = 0,
-			.pMessageIdName = nullptr,
+			.pMessageIdName = mvkGetReportingLevelString(logLevel),
 			.messageIdNumber = 0,
 			.pMessage = pMessage,
 			.queueLabelCount = 0,
@@ -768,6 +768,11 @@ void MVKInstance::initProcAddrs() {
 	ADD_DVC_EXT_ENTRY_POINT(vkCmdSetSampleLocationsEnableEXT, EXT_EXTENDED_DYNAMIC_STATE_3);
 	ADD_DVC_EXT_ENTRY_POINT(vkCmdSetSampleMaskEXT, EXT_EXTENDED_DYNAMIC_STATE_3);
 	ADD_DVC_EXT_ENTRY_POINT(vkCmdSetTessellationDomainOriginEXT, EXT_EXTENDED_DYNAMIC_STATE_3);
+	ADD_DVC_EXT_ENTRY_POINT(vkCopyImageToImageEXT, EXT_HOST_IMAGE_COPY);
+	ADD_DVC_EXT_ENTRY_POINT(vkCopyImageToMemoryEXT, EXT_HOST_IMAGE_COPY);
+	ADD_DVC_EXT_ENTRY_POINT(vkCopyMemoryToImageEXT, EXT_HOST_IMAGE_COPY);
+	ADD_DVC_EXT_ENTRY_POINT(vkGetImageSubresourceLayout2EXT, EXT_HOST_IMAGE_COPY);
+	ADD_DVC_EXT_ENTRY_POINT(vkTransitionImageLayoutEXT, EXT_HOST_IMAGE_COPY);
 }
 
 void MVKInstance::logVersions() {

@@ -37,6 +37,7 @@
 
 #import "CAMetalLayer+MoltenVK.h"
 
+#include <sys/stat.h>
 #include <cmath>
 
 using namespace std;
@@ -443,6 +444,11 @@ void MVKPhysicalDevice::getFeatures(VkPhysicalDeviceFeatures2* features) {
 				interlockFeatures->fragmentShaderShadingRateInterlock = false;    // Requires variable rate shading; not supported yet in Metal
 				break;
 			}
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES_EXT: {
+				auto* hostImageCopyFeatures = (VkPhysicalDeviceHostImageCopyFeaturesEXT*)next;
+				hostImageCopyFeatures->hostImageCopy = true;
+				break;
+			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES_EXT: {
 				auto* pipelineCreationCacheControlFeatures = (VkPhysicalDevicePipelineCreationCacheControlFeaturesEXT*)next;
 				pipelineCreationCacheControlFeatures->pipelineCreationCacheControl = true;
@@ -817,6 +823,10 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 				extMemHostProps->minImportedHostPointerAlignment = _metalFeatures.hostMemoryPageSize;
 				break;
 			}
+			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES_EXT: {
+				populateHostImageCopyProperties((VkPhysicalDeviceHostImageCopyPropertiesEXT*)next);
+				break;
+			}
 			case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_PROPERTIES_EXT: {
 				// This isn't implemented yet, but when it is, it is expected that we'll wind up doing it manually.
 				auto* robustness2Props = (VkPhysicalDeviceRobustness2PropertiesEXT*)next;
@@ -843,6 +853,77 @@ void MVKPhysicalDevice::getProperties(VkPhysicalDeviceProperties2* properties) {
 				break;
 		}
 	}
+}
+
+void MVKPhysicalDevice::populateHostImageCopyProperties(VkPhysicalDeviceHostImageCopyPropertiesEXT* pHostImageCopyProps) {
+
+	// Metal lacks the concept of image layouts, and so does not restrict 
+	// host copy transfers based on them. Assume all image layouts are supported.
+	// TODO: As extensions that add layouts are implemented, this list should be extended.
+	VkImageLayout supportedImgLayouts[] =  {
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		VK_IMAGE_LAYOUT_GENERAL,
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_IMAGE_LAYOUT_PREINITIALIZED,
+		VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+		VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+	};
+	uint32_t supportedImgLayoutsCnt = sizeof(supportedImgLayouts) / sizeof(VkImageLayout);
+
+	// pCopySrcLayouts
+	// If pCopySrcLayouts is NULL, return the number of supported layouts.
+	if (pHostImageCopyProps->pCopySrcLayouts) {
+		mvkCopy(pHostImageCopyProps->pCopySrcLayouts, supportedImgLayouts, min(pHostImageCopyProps->copySrcLayoutCount, supportedImgLayoutsCnt));
+	} else {
+		pHostImageCopyProps->copySrcLayoutCount = supportedImgLayoutsCnt;
+	}
+
+	// pCopyDstLayouts
+	// If pCopyDstLayouts is NULL, return the number of supported layouts.
+	if (pHostImageCopyProps->pCopyDstLayouts) {
+		mvkCopy(pHostImageCopyProps->pCopyDstLayouts, supportedImgLayouts, min(pHostImageCopyProps->copyDstLayoutCount, supportedImgLayoutsCnt));
+	} else {
+		pHostImageCopyProps->copyDstLayoutCount = supportedImgLayoutsCnt;
+	}
+
+	// optimalTilingLayoutUUID
+	// Since optimalTilingLayoutUUID is an uint8_t array, use Big-Endian byte ordering,
+	// so a hex dump of the array is human readable in its parts.
+	uint8_t* uuid = pHostImageCopyProps->optimalTilingLayoutUUID;
+	size_t uuidComponentOffset = 0;
+	mvkClear(uuid, VK_UUID_SIZE);
+
+	// First 4 bytes contains GPU vendor ID.
+	// Use Big-Endian byte ordering, so a hex dump is human readable
+	*(uint32_t*)&uuid[uuidComponentOffset] = NSSwapHostIntToBig(_properties.vendorID);
+	uuidComponentOffset += sizeof(uint32_t);
+
+	// Next 4 bytes contains GPU device ID
+	// Use Big-Endian byte ordering, so a hex dump is human readable
+	*(uint32_t*)&uuid[uuidComponentOffset] = NSSwapHostIntToBig(_properties.deviceID);
+	uuidComponentOffset += sizeof(uint32_t);
+
+	// Next 4 bytes contains OS version
+	*(MVKOSVersion*)&uuid[uuidComponentOffset] = mvkOSVersion();
+	uuidComponentOffset += sizeof(MVKOSVersion);
+
+	// Last 4 bytes are left zero
+
+	// identicalMemoryTypeRequirements
+	// Metal cannot use Private storage mode with host memory access.
+	pHostImageCopyProps->identicalMemoryTypeRequirements = false;
 }
 
 // Since these are uint8_t arrays, use Big-Endian byte ordering,
@@ -1177,6 +1258,15 @@ VkResult MVKPhysicalDevice::getImageFormatProperties(const VkPhysicalDeviceImage
                 samplerYcbcrConvProps->combinedImageSamplerDescriptorCount = std::max(_pixelFormats.getChromaSubsamplingPlaneCount(pImageFormatInfo->format), (uint8_t)1u);
                 break;
             }
+			case VK_STRUCTURE_TYPE_HOST_IMAGE_COPY_DEVICE_PERFORMANCE_QUERY_EXT: {
+				// Under Metal, VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT does not affect either memory layout
+				// or access, therefore, both identicalMemoryLayout and optimalDeviceAccess should be VK_TRUE.
+				// Also, per Vulkan spec, if identicalMemoryLayout is VK_TRUE, optimalDeviceAccess must also be VK_TRUE.
+				auto* hostImgCopyPerfQry = (VkHostImageCopyDevicePerformanceQueryEXT*)nextProps;
+				hostImgCopyPerfQry->optimalDeviceAccess = VK_TRUE;
+				hostImgCopyPerfQry->identicalMemoryLayout = VK_TRUE;
+				break;
+			}
             default:
                 break;
         }
@@ -1264,7 +1354,7 @@ VkResult MVKPhysicalDevice::getSurfaceSupport(uint32_t queueFamilyIndex,
     // Check whether this is a headless device
     bool isHeadless = false;
 #if MVK_MACOS
-    isHeadless = getMTLDevice().isHeadless;
+    isHeadless = _mtlDevice.isHeadless;
 #endif
     
 	// If this device is headless, the surface must be headless.
@@ -1676,9 +1766,7 @@ VkResult MVKPhysicalDevice::getQueueFamilyProperties(uint32_t* pCount,
 // wild temporary changes, particularly during initial queries before much GPU activity has occurred.
 // On Apple GPUs, CPU & GPU timestamps are the same, and timestamp period never changes.
 void MVKPhysicalDevice::updateTimestampPeriod() {
-	if (_properties.vendorID != kAppleVendorId &&
-		[_mtlDevice respondsToSelector: @selector(sampleTimestamps:gpuTimestamp:)]) {
-
+	if ( !_isAppleGPU && [_mtlDevice respondsToSelector: @selector(sampleTimestamps:gpuTimestamp:)]) {
 		MTLTimestamp earlierCPUTs = _prevCPUTimestamp;
 		MTLTimestamp earlierGPUTs = _prevGPUTimestamp;
 		[_mtlDevice sampleTimestamps: &_prevCPUTimestamp gpuTimestamp: &_prevGPUTimestamp];
@@ -1715,7 +1803,7 @@ VkResult MVKPhysicalDevice::getMemoryProperties(VkPhysicalDeviceMemoryProperties
 				auto* budgetProps = (VkPhysicalDeviceMemoryBudgetPropertiesEXT*)next;
 				mvkClear(budgetProps->heapBudget, VK_MAX_MEMORY_HEAPS);
 				mvkClear(budgetProps->heapUsage, VK_MAX_MEMORY_HEAPS);
-				if (!getHasUnifiedMemory()) {
+				if ( !_hasUnifiedMemory ) {
 					budgetProps->heapBudget[1] = (VkDeviceSize)mvkGetAvailableMemorySize();
 					budgetProps->heapUsage[1] = (VkDeviceSize)mvkGetUsedMemorySize();
 				}
@@ -1744,11 +1832,11 @@ MVKPhysicalDevice::MVKPhysicalDevice(MVKInstance* mvkInstance, id<MTLDevice> mtl
 	_supportedExtensions(this, true),
 	_pixelFormats(this) {				// Set after _mtlDevice
 
-	initMTLDevice();
-	initProperties();           		// Call first.
-	initMetalFeatures();        		// Call second.
-	initFeatures();             		// Call third.
-	initLimits();						// Call fourth.
+	initMTLDevice();           			// Call first.
+	initProperties();           		// Call second.
+	initMetalFeatures();        		// Call third.
+	initFeatures();             		// Call fourth.
+	initLimits();						// Call fifth.
 	initExtensions();
 	initMemoryProperties();
 	initExternalMemoryProperties();
@@ -1758,12 +1846,21 @@ MVKPhysicalDevice::MVKPhysicalDevice(MVKInstance* mvkInstance, id<MTLDevice> mtl
 }
 
 void MVKPhysicalDevice::initMTLDevice() {
-#if MVK_XCODE_14_3 && MVK_MACOS && !MVK_MACCAT
+#if MVK_MACOS
+	_isAppleGPU = supportsMTLGPUFamily(Apple1);
+
+	// Apple Silicon will respond false to isLowPower, but never hits it.
+	_hasUnifiedMemory = ([_mtlDevice respondsToSelector: @selector(hasUnifiedMemory)]
+						 ? _mtlDevice.hasUnifiedMemory : _mtlDevice.isLowPower);
+
+#if MVK_XCODE_14_3 && !MVK_MACCAT
 	if ([_mtlDevice respondsToSelector: @selector(setShouldMaximizeConcurrentCompilation:)]) {
 		[_mtlDevice setShouldMaximizeConcurrentCompilation: getMVKConfig().shouldMaximizeConcurrentCompilation];
 		MVKLogInfoIf(getMVKConfig().debugMode, "maximumConcurrentCompilationTaskCount %lu", _mtlDevice.maximumConcurrentCompilationTaskCount);
 	}
 #endif
+
+#endif  // MVK_MACOS
 }
 
 // Initializes the physical device properties (except limits).
@@ -2152,11 +2249,11 @@ void MVKPhysicalDevice::initMetalFeatures() {
 
 	// Don't use barriers in render passes on Apple GPUs. Apple GPUs don't support them,
 	// and in fact Metal's validation layer will complain if you try to use them.
+	// Texture barriers deprecated as of macOS 10.14.
 	if ( !supportsMTLGPUFamily(Apple1) ) {
 		if (supportsMTLFeatureSet(macOS_GPUFamily1_v4)) {
 			_metalFeatures.memoryBarriers = true;
 		}
-		_metalFeatures.textureBarriers = true;
 	}
 
 #endif
@@ -2879,16 +2976,14 @@ static uint32_t mvkGetEntryProperty(io_registry_entry_t entry, CFStringRef prope
 }
 
 void MVKPhysicalDevice::initGPUInfoProperties() {
-
-	bool isIntegrated = getHasUnifiedMemory();
-	_properties.deviceType = isIntegrated ? VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+	_properties.deviceType = _hasUnifiedMemory ? VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 	strlcpy(_properties.deviceName, _mtlDevice.name.UTF8String, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE);
 
 	// For Apple Silicon, the Device ID is determined by the highest
 	// GPU capability, which is a combination of OS version and GPU type.
 	// We determine Apple Silicon directly from the GPU, instead
 	// of from the build, in case we are running Rosetta2.
-	if (supportsMTLGPUFamily(Apple1)) {
+	if (_isAppleGPU) {
 		_properties.vendorID = kAppleVendorId;
 		_properties.deviceID = getHighestGPUCapability();
 		return;
@@ -2923,9 +3018,9 @@ void MVKPhysicalDevice::initGPUInfoProperties() {
 			if (mvkGetEntryProperty(entry, CFSTR("class-code")) == 0x30000) {	// 0x30000 : DISPLAY_VGA
 
 				// The Intel GPU will always be marked as integrated.
-				// Return on a match of either Intel && low power, or non-Intel and non-low-power.
+				// Return on a match of either Intel && unified memory, or non-Intel and non-unified memory.
 				uint32_t vendorID = mvkGetEntryProperty(entry, CFSTR("vendor-id"));
-				if ( (vendorID == kIntelVendorId) == isIntegrated) {
+				if ( (vendorID == kIntelVendorId) == _hasUnifiedMemory) {
 					isFound = true;
 					_properties.vendorID = vendorID;
 					_properties.deviceID = mvkGetEntryProperty(entry, CFSTR("device-id"));
@@ -3068,38 +3163,6 @@ void MVKPhysicalDevice::setMemoryType(uint32_t typeIndex, uint32_t heapIndex, Vk
 	_memoryProperties.memoryTypes[typeIndex].propertyFlags = propertyFlags;
 }
 
-// Initializes the memory properties of this instance.
-// Metal Shared:
-//	- applies to both buffers and textures
-//	- default mode for buffers on both iOS & macOS
-//	- default mode for textures on iOS
-//	- one copy of memory visible to both CPU & GPU
-//	- coherent at command buffer boundaries
-// Metal Private:
-//	- applies to both buffers and textures
-//	- accessed only by GPU through render, compute, or BLIT operations
-//	- no access by CPU
-//	- always use for framebuffers and renderable textures
-// Metal Managed:
-//	- applies to both buffers and textures
-//	- default mode for textures on macOS
-//	- two copies of each buffer or texture when discrete memory available
-//	- convenience of shared mode, performance of private mode
-//	- on unified systems behaves like shared memory and has only one copy of content
-//	- when writing, use:
-//		- buffer didModifyRange:
-//		- texture replaceRegion:
-//	- when reading, use:
-//		- encoder synchronizeResource: followed by
-//		- cmdbuff waitUntilCompleted (or completion handler)
-//		- buffer/texture getBytes:
-// Metal Memoryless:
-//	- applies only to textures used as transient render targets
-//	- only available with TBDR devices (i.e. on iOS)
-//	- no device memory is reserved at all
-//	- storage comes from tile memory
-//	- contents are undefined after rendering
-//	- use for temporary renderable textures
 void MVKPhysicalDevice::initMemoryProperties() {
 
 	mvkClear(&_memoryProperties);	// Start with everything cleared
@@ -3111,7 +3174,7 @@ void MVKPhysicalDevice::initMemoryProperties() {
 	// Optional second heap for shared memory
 	uint32_t sharedHeapIdx;
 	VkMemoryPropertyFlags sharedTypePropFlags;
-	if (getHasUnifiedMemory()) {
+	if (_hasUnifiedMemory) {
 		// Shared memory goes in the single main heap in unified memory, and per Vulkan spec must be marked local
 		sharedHeapIdx = mainHeapIdx;
 		sharedTypePropFlags = MVK_VK_MEMORY_TYPE_METAL_SHARED | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
@@ -3137,12 +3200,14 @@ void MVKPhysicalDevice::initMemoryProperties() {
 	setMemoryType(typeIdx, sharedHeapIdx, sharedTypePropFlags);
 	typeIdx++;
 
-	// Managed storage
+	// Managed storage. On all Apple Silicon, use Shared instead.
 	uint32_t managedBit = 0;
 #if MVK_MACOS
-	managedBit = 1 << typeIdx;
-	setMemoryType(typeIdx, mainHeapIdx, MVK_VK_MEMORY_TYPE_METAL_MANAGED);
-	typeIdx++;
+	if ( !_isAppleGPU ) {
+		managedBit = 1 << typeIdx;
+		setMemoryType(typeIdx, mainHeapIdx, MVK_VK_MEMORY_TYPE_METAL_MANAGED);
+		typeIdx++;
+	}
 #endif
 
 	// Memoryless storage
@@ -3178,17 +3243,33 @@ void MVKPhysicalDevice::initMemoryProperties() {
 	_allMemoryTypes				= privateBit | sharedBit | managedBit | memlessBit;
 }
 
-bool MVKPhysicalDevice::getHasUnifiedMemory() {
+MVK_PUBLIC_SYMBOL MTLStorageMode MVKPhysicalDevice::getMTLStorageModeFromVkMemoryPropertyFlags(VkMemoryPropertyFlags vkFlags) {
+
+	// If not visible to the host, use Private, or Memoryless if available and lazily allocated.
+	if ( !mvkAreAllFlagsEnabled(vkFlags, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ) {
+#if MVK_APPLE_SILICON
+		if (mvkAreAllFlagsEnabled(vkFlags, VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)) {
+			return MTLStorageModeMemoryless;
+		}
+#endif
+		return MTLStorageModePrivate;
+	}
+
+	// If visible to the host and coherent: Shared
+	if (mvkAreAllFlagsEnabled(vkFlags, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+		return MTLStorageModeShared;
+	}
+
+	// If visible to the host, but not coherent: Shared on Apple Silicon, Managed on other GPUs.
 #if MVK_MACOS
-	return ([_mtlDevice respondsToSelector: @selector(hasUnifiedMemory)]
-			? _mtlDevice.hasUnifiedMemory : _mtlDevice.isLowPower);
+	return _isAppleGPU ? MTLStorageModeShared : MTLStorageModeManaged;
 #else
-    return true;
+	return MTLStorageModeShared;
 #endif
 }
 
 uint64_t MVKPhysicalDevice::getVRAMSize() {
-	if (getHasUnifiedMemory()) {
+	if (_hasUnifiedMemory) {
 		return mvkGetSystemMemorySize();
 	} else {
 		// There's actually no way to query the total physical VRAM on the device in Metal.
@@ -3351,7 +3432,7 @@ void MVKPhysicalDevice::initVkSemaphoreStyle() {
 	switch (getMVKConfig().semaphoreSupportStyle) {
 		case MVK_CONFIG_VK_SEMAPHORE_SUPPORT_STYLE_METAL_EVENTS_WHERE_SAFE: {
 			bool isNVIDIA = _properties.vendorID == kNVVendorId;
-			bool isRosetta2 = _properties.vendorID == kAppleVendorId && !MVK_APPLE_SILICON;
+			bool isRosetta2 = _isAppleGPU && !MVK_APPLE_SILICON;
 			if (_metalFeatures.events && !(isRosetta2 || isNVIDIA)) { _vkSemaphoreStyle = MVKSemaphoreStyleUseMTLEvent; }
 			break;
 		}
@@ -3663,42 +3744,42 @@ void MVKDevice::getDescriptorVariableDescriptorCountLayoutSupport(const VkDescri
 		if (bindIdx == varBindingIdx) {
 			requestedCount = std::max(pBind->descriptorCount, 1u);
 		} else {
+			auto& mtlFeats = _physicalDevice->_metalFeatures;
 			switch (pBind->descriptorType) {
 				case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
 				case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
 				case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
 				case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
 					mtlBuffCnt += pBind->descriptorCount;
-					maxVarDescCount = _pMetalFeatures->maxPerStageBufferCount - mtlBuffCnt;
+					maxVarDescCount = mtlFeats.maxPerStageBufferCount - mtlBuffCnt;
 					break;
 				case VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT:
-					maxVarDescCount = (uint32_t)min<VkDeviceSize>(_pMetalFeatures->maxMTLBufferSize, numeric_limits<uint32_t>::max());
+					maxVarDescCount = (uint32_t)min<VkDeviceSize>(mtlFeats.maxMTLBufferSize, numeric_limits<uint32_t>::max());
 					break;
 				case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
 				case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
 				case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
 					mtlTexCnt += pBind->descriptorCount;
-					maxVarDescCount = _pMetalFeatures->maxPerStageTextureCount - mtlTexCnt;
+					maxVarDescCount = mtlFeats.maxPerStageTextureCount - mtlTexCnt;
 					break;
 				case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
 				case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
 					mtlTexCnt += pBind->descriptorCount;
-
-					if (getPhysicalDevice()->useNativeTextureAtomics())
+					if (_physicalDevice->_metalFeatures.nativeTextureAtomics) {
 						mtlBuffCnt += pBind->descriptorCount;
-
-					maxVarDescCount = min(_pMetalFeatures->maxPerStageTextureCount - mtlTexCnt,
-										  _pMetalFeatures->maxPerStageBufferCount - mtlBuffCnt);
+					}
+					maxVarDescCount = min(mtlFeats.maxPerStageTextureCount - mtlTexCnt,
+										  mtlFeats.maxPerStageBufferCount - mtlBuffCnt);
 					break;
 				case VK_DESCRIPTOR_TYPE_SAMPLER:
 					mtlSampCnt += pBind->descriptorCount;
-					maxVarDescCount = _pMetalFeatures->maxPerStageSamplerCount - mtlSampCnt;
+					maxVarDescCount = mtlFeats.maxPerStageSamplerCount - mtlSampCnt;
 					break;
 				case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
 					mtlTexCnt += pBind->descriptorCount;
 					mtlSampCnt += pBind->descriptorCount;
-					maxVarDescCount = min(_pMetalFeatures->maxPerStageTextureCount - mtlTexCnt,
-										  _pMetalFeatures->maxPerStageSamplerCount - mtlSampCnt);
+					maxVarDescCount = min(mtlFeats.maxPerStageTextureCount - mtlTexCnt,
+										  mtlFeats.maxPerStageSamplerCount - mtlSampCnt);
 					break;
 				default:
 					break;
@@ -3758,7 +3839,7 @@ void MVKDevice::getCalibratedTimestamps(uint32_t timestampCount,
 	uint64_t cpuStart, cpuEnd;
 
 	cpuStart = mvkGetContinuousNanoseconds();
-	[getMTLDevice() sampleTimestamps: &cpuStamp gpuTimestamp: &gpuStamp];
+	[_physicalDevice->_mtlDevice sampleTimestamps: &cpuStamp gpuTimestamp: &gpuStamp];
 	// Sample again to calculate the maximum deviation. Note that the
 	// -[MTLDevice sampleTimestamps:gpuTimestamp:] method guarantees that CPU
 	// timestamps are in nanoseconds. We don't want to call the method again,
@@ -3807,8 +3888,9 @@ uint32_t MVKDevice::getVulkanMemoryTypeIndex(MTLStorageMode mtlStorageMode) {
             break;
     }
 
-    for (uint32_t mtIdx = 0; mtIdx < _pMemoryProperties->memoryTypeCount; mtIdx++) {
-        if (_pMemoryProperties->memoryTypes[mtIdx].propertyFlags == vkMemFlags) { return mtIdx; }
+	auto& memProps = _physicalDevice->_memoryProperties;
+    for (uint32_t mtIdx = 0; mtIdx < memProps.memoryTypeCount; mtIdx++) {
+        if (memProps.memoryTypes[mtIdx].propertyFlags == vkMemFlags) { return mtIdx; }
     }
     MVKAssert(false, "Could not find memory type corresponding to VkMemoryPropertyFlags %d", vkMemFlags);
     return 0;
@@ -3930,7 +4012,7 @@ MVKSemaphore* MVKDevice::createSemaphore(const VkSemaphoreCreateInfo* pCreateInf
 	}
 
 	if (pTypeCreateInfo && pTypeCreateInfo->semaphoreType == VK_SEMAPHORE_TYPE_TIMELINE) {
-		if (_pMetalFeatures->events) {
+		if (_physicalDevice->_metalFeatures.events) {
 			return new MVKTimelineSemaphoreMTLEvent(this, pCreateInfo, pTypeCreateInfo, pExportInfo, pImportInfo);
 		} else {
 			return new MVKTimelineSemaphoreEmulated(this, pCreateInfo, pTypeCreateInfo, pExportInfo, pImportInfo);
@@ -3975,7 +4057,7 @@ MVKEvent* MVKDevice::createEvent(const VkEventCreateInfo* pCreateInfo,
 		}
 	}
 
-	if (_pMetalFeatures->events) {
+	if (_physicalDevice->_metalFeatures.events) {
 		return new MVKEventNative(this, pCreateInfo, pExportInfo, pImportInfo);
 	} else {
 		return new MVKEventEmulated(this, pCreateInfo, pExportInfo, pImportInfo);
@@ -4342,6 +4424,7 @@ void MVKDevice::applyMemoryBarrier(MVKPipelineBarrier& barrier,
 void MVKDevice::updateActivityPerformance(MVKPerformanceTracker& activity, double currentValue) {
 	lock_guard<mutex> lock(_perfLock);
 
+	activity.previous = activity.latest;
 	activity.latest = currentValue;
 	activity.minimum = ((activity.minimum == 0.0)
 								? currentValue :
@@ -4351,25 +4434,26 @@ void MVKDevice::updateActivityPerformance(MVKPerformanceTracker& activity, doubl
 	activity.average = total / activity.count;
 
 	if (_isPerformanceTracking && getMVKConfig().activityPerformanceLoggingStyle == MVK_CONFIG_ACTIVITY_PERFORMANCE_LOGGING_STYLE_IMMEDIATE) {
-		logActivityInline(activity, _performanceStatistics);
+		logActivityInline(activity, _performanceStats);
 	}
 }
 
 void MVKDevice::logActivityInline(MVKPerformanceTracker& activity, MVKPerformanceStatistics& perfStats) {
-	if (getActivityPerformanceValueType(activity, _performanceStatistics) == MVKActivityPerformanceValueTypeByteCount) {
-		logActivityByteCount(activity, _performanceStatistics, true);
+	if (getActivityPerformanceValueType(activity, _performanceStats) == MVKActivityPerformanceValueTypeByteCount) {
+		logActivityByteCount(activity, _performanceStats, true);
 	} else {
-		logActivityDuration(activity, _performanceStatistics, true);
+		logActivityDuration(activity, _performanceStats, true);
 	}
 }
 void MVKDevice::logActivityDuration(MVKPerformanceTracker& activity, MVKPerformanceStatistics& perfStats, bool isInline) {
 	const char* fmt = (isInline
-					   ? "%s performance avg: %.3f ms, latest: %.3f ms, min: %.3f ms, max: %.3f ms, count: %d"
-					   : "  %-45s avg: %.3f ms, latest: %.3f ms, min: %.3f ms, max: %.3f ms, count: %d");
+					   ? "%s performance avg: %.3f ms, latest: %.3f ms, prev: %.3f ms, min: %.3f ms, max: %.3f ms, count: %d"
+					   : "  %-45s avg: %.3f ms, latest: %.3f ms, prev: %.3f ms, min: %.3f ms, max: %.3f ms, count: %d");
 	MVKLogInfo(fmt,
 			   getActivityPerformanceDescription(activity, perfStats),
 			   activity.average,
 			   activity.latest,
+			   activity.previous,
 			   activity.minimum,
 			   activity.maximum,
 			   activity.count);
@@ -4377,12 +4461,13 @@ void MVKDevice::logActivityDuration(MVKPerformanceTracker& activity, MVKPerforma
 
 void MVKDevice::logActivityByteCount(MVKPerformanceTracker& activity, MVKPerformanceStatistics& perfStats, bool isInline) {
 	const char* fmt = (isInline
-					   ? "%s avg: %5llu MB, latest: %5llu MB, min: %5llu MB, max: %5llu MB, count: %d"
-					   : "  %-45s avg: %5llu MB, latest: %5llu MB, min: %5llu MB, max: %5llu MB, count: %d");
+					   ? "%s avg: %5llu MB, latest: %5llu MB, prev: %5llu MB, min: %5llu MB, max: %5llu MB, count: %d"
+					   : "  %-45s avg: %5llu MB, latest: %5llu MB, prev: %5llu MB, min: %5llu MB, max: %5llu MB, count: %d");
 	MVKLogInfo(fmt,
 			   getActivityPerformanceDescription(activity, perfStats),
 			   uint64_t(activity.average) / KIBI,
 			   uint64_t(activity.latest) / KIBI,
+			   uint64_t(activity.previous) / KIBI,
 			   uint64_t(activity.minimum) / KIBI,
 			   uint64_t(activity.maximum) / KIBI,
 			   activity.count);
@@ -4455,11 +4540,12 @@ MVKActivityPerformanceValueType MVKDevice::getActivityPerformanceValueType(MVKPe
 }
 
 void MVKDevice::getPerformanceStatistics(MVKPerformanceStatistics* pPerf) {
-	addPerformanceByteCount(_performanceStatistics.device.gpuMemoryAllocated,
-							_physicalDevice->getCurrentAllocatedSize());
-
+	if (_isPerformanceTracking) {
+		updateActivityPerformance(_performanceStats.device.gpuMemoryAllocated,
+								  double(_physicalDevice->getCurrentAllocatedSize() / KIBI));
+	}
 	lock_guard<mutex> lock(_perfLock);
-    if (pPerf) { *pPerf = _performanceStatistics; }
+    if (pPerf) { *pPerf = _performanceStats; }
 }
 
 VkResult MVKDevice::invalidateMappedMemoryRanges(uint32_t memRangeCount, const VkMappedMemoryRange* pMemRanges) {
@@ -4536,13 +4622,13 @@ uint32_t MVKDevice::getViewCountInMetalPass(uint32_t viewMask, uint32_t passIdx)
 #pragma mark Metal
 
 uint32_t MVKDevice::getMetalBufferIndexForVertexAttributeBinding(uint32_t binding) {
-	return ((_pMetalFeatures->maxPerStageBufferCount - 1) - binding);
+	return ((_physicalDevice->_metalFeatures.maxPerStageBufferCount - 1) - binding);
 }
 
 VkDeviceSize MVKDevice::getVkFormatTexelBufferAlignment(VkFormat format, MVKBaseObject* mvkObj) {
 	VkDeviceSize deviceAlignment = 0;
-	id<MTLDevice> mtlDev = getMTLDevice();
-	MVKPixelFormats* mvkPixFmts = getPixelFormats();
+	id<MTLDevice> mtlDev = _physicalDevice->_mtlDevice;
+	MVKPixelFormats* mvkPixFmts = &_physicalDevice->_pixelFormats;
 	if ([mtlDev respondsToSelector: @selector(minimumLinearTextureAlignmentForPixelFormat:)]) {
 		MTLPixelFormat mtlPixFmt = mvkPixFmts->getMTLPixelFormat(format);
 		if (mvkPixFmts->getChromaSubsamplingPlaneCount(format) >= 2) {
@@ -4552,7 +4638,7 @@ VkDeviceSize MVKDevice::getVkFormatTexelBufferAlignment(VkFormat format, MVKBase
 		}
 		deviceAlignment = [mtlDev minimumLinearTextureAlignmentForPixelFormat: mtlPixFmt];
 	}
-	return deviceAlignment ? deviceAlignment : _pProperties->limits.minTexelBufferOffsetAlignment;
+	return deviceAlignment ? deviceAlignment : _physicalDevice->_properties.limits.minTexelBufferOffsetAlignment;
 }
 
 id<MTLBuffer> MVKDevice::getGlobalVisibilityResultMTLBuffer() {
@@ -4566,7 +4652,7 @@ uint32_t MVKDevice::expandVisibilityResultMTLBuffer(uint32_t queryCount) {
     // Ensure we don't overflow the maximum number of queries
     _globalVisibilityQueryCount += queryCount;
     VkDeviceSize reqBuffLen = (VkDeviceSize)_globalVisibilityQueryCount * kMVKQuerySlotSizeInBytes;
-    VkDeviceSize maxBuffLen = _pMetalFeatures->maxQueryBufferSize;
+    VkDeviceSize maxBuffLen = _physicalDevice->_metalFeatures.maxQueryBufferSize;
     VkDeviceSize newBuffLen = min(reqBuffLen, maxBuffLen);
     _globalVisibilityQueryCount = uint32_t(newBuffLen / kMVKQuerySlotSizeInBytes);
 
@@ -4574,10 +4660,10 @@ uint32_t MVKDevice::expandVisibilityResultMTLBuffer(uint32_t queryCount) {
         reportError(VK_ERROR_OUT_OF_DEVICE_MEMORY, "vkCreateQueryPool(): A maximum of %d total queries are available on this device in its current configuration. See the API notes for the MVKConfiguration.supportLargeQueryPools configuration parameter for more info.", _globalVisibilityQueryCount);
     }
 
-    NSUInteger mtlBuffLen = mvkAlignByteCount(newBuffLen, _pMetalFeatures->mtlBufferAlignment);
+    NSUInteger mtlBuffLen = mvkAlignByteCount(newBuffLen, _physicalDevice->_metalFeatures.mtlBufferAlignment);
     MTLResourceOptions mtlBuffOpts = MTLResourceStorageModeShared | MTLResourceCPUCacheModeDefaultCache;
     [_globalVisibilityResultMTLBuffer release];
-    _globalVisibilityResultMTLBuffer = [getMTLDevice() newBufferWithLength: mtlBuffLen options: mtlBuffOpts];     // retained
+    _globalVisibilityResultMTLBuffer = [_physicalDevice->_mtlDevice newBufferWithLength: mtlBuffLen options: mtlBuffOpts];     // retained
 
     return _globalVisibilityQueryCount - queryCount;     // Might be lower than requested if an overflow occurred
 }
@@ -4591,7 +4677,7 @@ id<MTLSamplerState> MVKDevice::getDefaultMTLSamplerState() {
 			@autoreleasepool {
 				MTLSamplerDescriptor* mtlSampDesc = [[MTLSamplerDescriptor new] autorelease];
 				mtlSampDesc.supportArgumentBuffers = isUsingMetalArgumentBuffers();
-				_defaultMTLSamplerState = [getMTLDevice() newSamplerStateWithDescriptor: mtlSampDesc];	// retained
+				_defaultMTLSamplerState = [_physicalDevice->_mtlDevice newSamplerStateWithDescriptor: mtlSampDesc];	// retained
 			}
 		}
 	}
@@ -4605,7 +4691,7 @@ id<MTLBuffer> MVKDevice::getDummyBlitMTLBuffer() {
 		lock_guard<mutex> lock(_rezLock);
 		if ( !_dummyBlitMTLBuffer ) {
 			@autoreleasepool {
-				_dummyBlitMTLBuffer = [getMTLDevice() newBufferWithLength: 1 options: MTLResourceStorageModePrivate];
+				_dummyBlitMTLBuffer = [_physicalDevice->_mtlDevice newBufferWithLength: 1 options: MTLResourceStorageModePrivate];
 			}
 		}
 	}
@@ -4614,7 +4700,7 @@ id<MTLBuffer> MVKDevice::getDummyBlitMTLBuffer() {
 
 MTLCompileOptions* MVKDevice::getMTLCompileOptions(bool requestFastMath, bool preserveInvariance) {
 	MTLCompileOptions* mtlCompOpt = [MTLCompileOptions new];
-	mtlCompOpt.languageVersion = _pMetalFeatures->mslVersionEnum;
+	mtlCompOpt.languageVersion = _physicalDevice->_metalFeatures.mslVersionEnum;
 	mtlCompOpt.fastMathEnabled = (getMVKConfig().fastMathEnabled == MVK_CONFIG_FAST_MATH_ALWAYS ||
 								  (getMVKConfig().fastMathEnabled == MVK_CONFIG_FAST_MATH_ON_DEMAND && requestFastMath));
 #if MVK_XCODE_12
@@ -4640,6 +4726,8 @@ bool MVKDevice::shouldPrefillMTLCommandBuffers() {
 void MVKDevice::startAutoGPUCapture(MVKConfigAutoGPUCaptureScope autoGPUCaptureScope, id mtlCaptureObject) {
 
 	if (_isCurrentlyAutoGPUCapturing || (getMVKConfig().autoGPUCaptureScope != autoGPUCaptureScope)) { return; }
+
+	if (autoGPUCaptureScope == MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_ON_DEMAND && !readGPUCapturePipe()) return;
 
 	_isCurrentlyAutoGPUCapturing = true;
 
@@ -4688,6 +4776,7 @@ void MVKDevice::startAutoGPUCapture(MVKConfigAutoGPUCaptureScope autoGPUCaptureS
 
 void MVKDevice::stopAutoGPUCapture(MVKConfigAutoGPUCaptureScope autoGPUCaptureScope) {
 	if (_isCurrentlyAutoGPUCapturing && getMVKConfig().autoGPUCaptureScope == autoGPUCaptureScope) {
+		if (autoGPUCaptureScope == MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_ON_DEMAND && readGPUCapturePipe()) return;
 		[[MTLCaptureManager sharedCaptureManager] stopCapture];
 		_isCurrentlyAutoGPUCapturing = false;
 	}
@@ -4698,7 +4787,7 @@ void MVKDevice::getMetalObjects(VkExportMetalObjectsInfoEXT* pMetalObjectsInfo) 
 		switch (next->sType) {
 			case VK_STRUCTURE_TYPE_EXPORT_METAL_DEVICE_INFO_EXT: {
 				auto* pDvcInfo = (VkExportMetalDeviceInfoEXT*)next;
-				pDvcInfo->mtlDevice = getMTLDevice();
+				pDvcInfo->mtlDevice = _physicalDevice->_mtlDevice;
 				break;
 			}
 			case VK_STRUCTURE_TYPE_EXPORT_METAL_COMMAND_QUEUE_INFO_EXT: {
@@ -4776,8 +4865,9 @@ MVKDevice::MVKDevice(MVKPhysicalDevice* physicalDevice, const VkDeviceCreateInfo
 	// In a multi-GPU system, if we are using the high-power GPU and want the window system
 	// to also use that GPU to avoid copying content between GPUs, force the window system
 	// to use the high-power GPU by calling the MTLCreateSystemDefaultDevice() function.
+	id<MTLDevice> mtlDev = _physicalDevice->_mtlDevice;
 	if (_enabledExtensions.vk_KHR_swapchain.enabled && getMVKConfig().switchSystemGPU &&
-		!(_physicalDevice->_mtlDevice.isLowPower || _physicalDevice->_mtlDevice.isHeadless) ) {
+		!(mtlDev.isLowPower || mtlDev.isHeadless) ) {
 			MTLCreateSystemDefaultDevice();
 	}
 #endif
@@ -4792,18 +4882,42 @@ MVKDevice::MVKDevice(MVKPhysicalDevice* physicalDevice, const VkDeviceCreateInfo
 
 	_commandResourceFactory = new MVKCommandResourceFactory(this);
 
-	startAutoGPUCapture(MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE, getMTLDevice());
+	startAutoGPUCapture(MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE, _physicalDevice->_mtlDevice);
+
+	if (getMVKConfig().autoGPUCaptureScope == MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_ON_DEMAND) {
+		for (int tries = 0; tries < 3; ++tries) {
+			char pipeName[] = "/tmp/MoltenVKCapturePipe-XXXXXXXXXX";
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+			mktemp(pipeName);
+#pragma clang diagnostic pop
+
+			if (mkfifo(pipeName, 0600) < 0) {
+				if (errno == EEXIST) continue; // Name collision, retry.
+				reportMessage(MVK_CONFIG_LOG_LEVEL_ERROR, "Could not create named pipe for signaling GPU capture: %s\n", strerror(errno));
+			} else {
+				_capturePipeFileName = std::string(pipeName);
+				_capturePipeFileDesc = open(pipeName, O_RDONLY | O_NONBLOCK);
+				if (_capturePipeFileDesc < 0) {
+					reportMessage(MVK_CONFIG_LOG_LEVEL_ERROR, "Could not open named pipe for signaling GPU capture at path %s: %s\n", pipeName, strerror(errno));
+				}
+			}
+
+			break;
+		}
+	}
 
 	MVKLogInfo("Created VkDevice to run on GPU %s with the following %d Vulkan extensions enabled:%s",
 			   getName(), _enabledExtensions.getEnabledCount(), _enabledExtensions.enabledNamesString("\n\t\t", true).c_str());
 }
 
 // Perf stats that last the duration of the app process.
-static MVKPerformanceStatistics _processPerformanceStatistics = {};
+static MVKPerformanceStatistics _processPerformanceStats = {};
 
 void MVKDevice::initPerformanceTracking() {
 	_isPerformanceTracking = getMVKConfig().performanceTracking;
-	_performanceStatistics = _processPerformanceStatistics;
+	_performanceStats = _processPerformanceStats;
 }
 
 void MVKDevice::initPhysicalDevice(MVKPhysicalDevice* physicalDevice, const VkDeviceCreateInfo* pCreateInfo) {
@@ -4826,10 +4940,6 @@ void MVKDevice::initPhysicalDevice(MVKPhysicalDevice* physicalDevice, const VkDe
 		_physicalDevice = MVKPhysicalDevice::getMVKPhysicalDevice(pGroupCreateInfo->pPhysicalDevices[0]);
 	else
 		_physicalDevice = physicalDevice;
-
-	_pMetalFeatures = _physicalDevice->getMetalFeatures();
-	_pProperties = &_physicalDevice->_properties;
-	_pMemoryProperties = &_physicalDevice->_memoryProperties;
 
 	switch (_physicalDevice->_vkSemaphoreStyle) {
 		case MVKSemaphoreStyleUseMTLEvent:
@@ -5108,7 +5218,7 @@ MVKDevice::~MVKDevice() {
 		} else if (perfLogStyle == MVK_CONFIG_ACTIVITY_PERFORMANCE_LOGGING_STYLE_DEVICE_LIFETIME_ACCUMULATE) {
 			MVKLogInfo("Process activity performance summary:");
 			logPerformanceSummary();
-			_processPerformanceStatistics = _performanceStatistics;
+			_processPerformanceStats = _performanceStats;
 		}
 	}
 
@@ -5123,6 +5233,8 @@ MVKDevice::~MVKDevice() {
 	[_dummyBlitMTLBuffer release];
 
 	stopAutoGPUCapture(MVK_CONFIG_AUTO_GPU_CAPTURE_SCOPE_DEVICE);
+
+	if (!_capturePipeFileName.empty()) { unlink(_capturePipeFileName.c_str()); }
 
 	mvkDestroyContainerContents(_privateDataSlots);
 
